@@ -83,6 +83,7 @@ Three most important addtions to the traditional LDA model:
 ## Part 3: The stLDA-C Model in Action: Analyze US Senators' tweets from a single day
 
 ```{r include=FALSE}
+# Load the packages
 library(devtools)
 library(textnets)
 library(topicmodels)
@@ -101,12 +102,13 @@ tweets <- tweets_all[,c("text", "screen_name", "user_id")]
 # keep 20 tweets for each screen_name (scale down to save running time)
 tweets <- tweets %>% group_by(screen_name) %>% slice(1:10) %>% ungroup()
 # pick 20 screen_name randomly and only keep their tweets, 20 for each screen_name, set seed=196
-tweets <- tweets %>% filter(screen_name %in% sample(unique(screen_name), 20, replace = FALSE, set.seed(196)))
+tweets <- tweets %>% filter(screen_name %in% sample(unique(screen_name), 20, replace = FALSE, set.seed(42)))
 ```
 
 ### 3.1 Visualize the networks of tweets and users
 
 ```{r}
+# Create the networks
 tweets_w <- PrepText(tweets, groupvar = "screen_name", textvar = "text", node_type = "words", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
 tweets_g <- PrepText(tweets, groupvar = "screen_name", textvar = "text", node_type = "groups", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
 
@@ -131,7 +133,7 @@ VisTextNet(tweets_g_nw, alpha = 0.25, label_degree_cut=0, betweenness=TRUE)
 
 ### 3.2 Use stLDA-C to analyze US Senators' tweets. (One day's tweets from 100 US Senators)
 
-```{r}
+```{r include=FALSE}
 # Replicate the demo code from the authors
 source("rcs/scripts/setup.R")
 source("rcs/scripts/helper_functions.R")
@@ -151,7 +153,7 @@ dtm <- convert(dfmat_tweets, to = "topicmodels")
 
 # Set the number of topics
 nT <- 6  
-lda <- LDA(dtm, k = nT, control = list(seed = 196))
+lda <- LDA(dtm, k = nT, control = list(seed = 42))
 
 # Extract the topic distributions
 topics <- tidy(lda, matrix = "beta")
@@ -181,17 +183,10 @@ groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = .1, nu 
                                                         mu_scale = 0, sigma_scale = 100,
                                                         prop_scale_center = 100, alphag_sample_method = "componentwise",
                                                         print_clusters = T)
+```
 
-#sample stLDA, see gibbs_functions.R for documentation and parameter descriptions
-# groundtruth_estimate_nocluster <- collapsed_gibbs_1topic(alpha = 1,eta = .1,
-#                                                          users = users,dw = dw,
-#                                                          nT = nT,
-#                                                          niter = 100,
-#                                                          seed = 555)
 
-#save resultts
-#save(groundtruth_estimate,users,dw,ta_true,ca_true,tw_true,words,file = "output/clda_sims/set1_cldac.Rdata")
-#save(groundtruth_estimate_nocluster,users,dw,ta_true,ca_true,tw_true,words,file = "output/clda_sims/set1_clda_100runs.Rdata")
+```{r}
 
 #######################
 ### Visualizations ####
