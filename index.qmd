@@ -1,0 +1,246 @@
+---
+title: "stLDA-C: A Topic Model for Short Texts"
+author: "Eddy Ji"
+date: "`r Sys.Date()`"
+resources: "rcs/"
+format:
+  html:
+    code-fold: true
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    self-contained: true
+execute: 
+  warning: false
+---
+
+## Part 1: Introduction
+
+### 1.1 Recap: What's LDA?
+
+-   LDA is a generative probabilistic model for collections of discrete data such as text corpora.
+-   Documents, Words, Topics: LDA is a three-level hierarchical Bayesian model, in which each item of a collection is modeled as a finite mixture over an underlying set of topics.
+-   Assumptions:
+    -   Documents are represented as random mixtures over latent topics, where each topic is characterized by a distribution over words.
+    -   Documents are exchangeable.
+    -   Each word's creation is conditioned on a single topic.
+    -   The topic proportions of a document are assumed to have a Dirichlet prior.
+    -   The topic-specific word distributions also have a Dirichlet prior.
+-   Requirements for the data:
+    -   Each document must represent a mixture of topics.
+    -   Each word must be generated from a single topic.
+
+### 1.2 What's LDA's problem with short texts like tweets?
+
+-   LDA is designed for long documents, but tweets are short.
+-   LDA assumes that each document is a mixture of topics, but tweets are often about a single topic.
+-   Short texts from SSN has other characteristics that are not considered by LDA, such as users, hashtags, mentions, etc.
+
+### 1.3 What are the fixes by far?
+
+-   Merge all short documents by the same users into a long document
+-   Use a single topic for each short document
+    -   Per-shot-text LDA (aka. Twitter-LDA)
+    -   Dirichlet-Multinomial Mixture (DMM)
+-   Learn topics from longer documents (e.g., news articles) and apply them to short texts
+-   Classify shot texts utilizing neural networks
+    -   The word mover's distance (WMD)
+    -   Word embeddings
+-   Clustering techniques
+
+### 1.4 What's the problem with the fixes?
+
+-   The user information is lost
+-   The co-occurence of words within the same short texts is lost
+-   Requires a corpus of long text that is a priori compatible with the short-text documents
+-   Rely on pre-trained word embeddings may not reflect the specific voabulary and semantic usage of words in the short texts
+
+### 1.5 Introducing stLDA-C
+
+-   Short text LDA topic model with unsupervised clustering of authors of short documents
+-   Fuses the clustering of **both authors(users) and documents**
+-   This hierachical model is able to share information at multiple levels leading to higher quality estimates of per-author topic distributions, per-cluster topic distribution centers, and autho cluster assignments.
+
+## Part 2: The stLDA-C Model
+
+The stLDA-C model is specifically designed to handle the sparsity of words in short texts by considering the additional structure provided by user clusters and potentially by integrating external information or employing different priors that are more suitable for short texts.
+
+From traditional
+
+![LDA](rcs/tLDA_diagram.png)
+
+to
+
+![stLDA-C](rcs/stLDA_diagram.png)
+
+*visualization is under construction*
+
+Three most important addtions to the traditional LDA model:
+
+1.  **User Clustering**: This model introduces a layer of user clustering that groups users into different clusters based on their topic preferences.
+2.  **Hierarchical Topic Distributions**: It incorporates hierarchical priors, which allow for cluster-level topic distributions and user-specific topic distributions.
+
+## Part 3: The stLDA-C Model in Action: Analyze US Senators' tweets from a single day
+
+```{r include=FALSE}
+library(devtools)
+library(textnets)
+library(topicmodels)
+library(tidytext)
+library(tidyverse)
+library(quanteda)
+library(tidytext)
+library(textdata)
+library(networkD3)
+library(igraph)
+
+# Load the data
+tweets_all <- read.csv("rcs/data/senate_tweets_09.26.2020.csv")
+# keep only the text and the user id
+tweets <- tweets_all[,c("text", "screen_name", "user_id")]
+# keep 20 tweets for each screen_name (scale down to save running time)
+tweets <- tweets %>% group_by(screen_name) %>% slice(1:10) %>% ungroup()
+# pick 20 screen_name randomly and only keep their tweets, 20 for each screen_name, set seed=196
+tweets <- tweets %>% filter(screen_name %in% sample(unique(screen_name), 20, replace = FALSE, set.seed(196)))
+```
+
+### 3.1 Visualize the networks of tweets and users
+
+```{r}
+tweets_w <- PrepText(tweets, groupvar = "screen_name", textvar = "text", node_type = "words", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
+tweets_g <- PrepText(tweets, groupvar = "screen_name", textvar = "text", node_type = "groups", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
+
+tweets_w_nw <- CreateTextnet(tweets_w)
+tweets_g_nw <- CreateTextnet(tweets_g)
+
+# Save the networks to local files
+saveRDS(tweets_w_nw, "rcs/data/tweets_w_nw.rds")
+saveRDS(tweets_g_nw, "rcs/data/tweets_g_nw.rds")
+
+# # ## Check the distribution of degree of the nodes
+# degree <- degree(tweets_w_nw)
+# hist(degree, breaks = 100, main = "Degree Distribution of Words", xlab = "Degree")
+# # 
+# # ## Check number of nodes and edges
+# vcount(tweets_w_nw)
+
+VisTextNet(tweets_w_nw, alpha = 0.25, label_degree_cut=10, betweenness=FALSE)
+VisTextNet(tweets_g_nw, alpha = 0.25, label_degree_cut=0, betweenness=TRUE)
+
+```
+
+### 3.2 Use stLDA-C to analyze US Senators' tweets. (One day's tweets from 100 US Senators)
+
+```{r}
+# Replicate the demo code from the authors
+source("rcs/scripts/setup.R")
+source("rcs/scripts/helper_functions.R")
+source("rcs/scripts/gibbs_functions.R")
+
+# Generate Document-Feature Matrix from tweets
+dfmat_tweets <- dfm(tweets$text, remove_punct = TRUE, remove = stopwords('en')) %>%
+  dfm_trim(min_termfreq = 0.95, termfreq_type = "quantile", max_docfreq = 0.1, docfreq_type = "prop")
+
+# Ensure all documents have content
+dfmat_tweets <- dfmat_tweets[ntoken(dfmat_tweets) > 0,]
+
+# Convert to a Document-Term Matrix (DTM) for LDA
+dtm <- convert(dfmat_tweets, to = "topicmodels")
+
+### LDA Model Fitting ###
+
+# Set the number of topics
+nT <- 6  
+lda <- LDA(dtm, k = nT, control = list(seed = 196))
+
+# Extract the topic distributions
+topics <- tidy(lda, matrix = "beta")
+
+# Generate a topic-word matrix
+topics_tw <- topics %>%
+  group_by(topic) %>%
+  spread(key = topic, value = beta)
+
+words <- topics_tw$term
+tw_true <- topics_tw[, 2:(nT + 1)] %>% t
+
+### Clustering ###
+# Number of Clusters
+nC <- 2  # Adjust this based on your analysis requirement
+
+# Users - using screen names from tweets
+users <- tweets$screen_name
+dw <- as.matrix(dfmat_tweets)
+# Fit the stLDA-C Model
+groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = .1, nu = 1,
+                                                        users = users, dw = tw_true,  
+                                                        nT = nT, nC = nC,
+                                                        niter = 50,
+                                                        seed = 196, mcmc_update = T,
+                                                        nClusterIter = 100,
+                                                        mu_scale = 0, sigma_scale = 100,
+                                                        prop_scale_center = 100, alphag_sample_method = "componentwise",
+                                                        print_clusters = T)
+
+#sample stLDA, see gibbs_functions.R for documentation and parameter descriptions
+# groundtruth_estimate_nocluster <- collapsed_gibbs_1topic(alpha = 1,eta = .1,
+#                                                          users = users,dw = dw,
+#                                                          nT = nT,
+#                                                          niter = 100,
+#                                                          seed = 555)
+
+#save resultts
+#save(groundtruth_estimate,users,dw,ta_true,ca_true,tw_true,words,file = "output/clda_sims/set1_cldac.Rdata")
+#save(groundtruth_estimate_nocluster,users,dw,ta_true,ca_true,tw_true,words,file = "output/clda_sims/set1_clda_100runs.Rdata")
+
+#######################
+### Visualizations ####
+#######################
+
+#print top 5 words from each topic
+groundtruth_estimate[["tw"]] %>% 
+  top_topic_words(words = words,n=10) %>% 
+  t
+
+#print cluster means with user-level topic estimates overlayed
+#grey bars are cluster-level expected values, colored lines are each user's topic distribution
+#note that clusters with 1 user do not visualize well
+
+# Extract estimated cluster assignments from the model results
+ca_est <- groundtruth_estimate[["ca"]] %>% results_freq_table() %>% apply(1, which.max)
+
+# The following line is commented out because ca_true doesn't exist in your actual data scenario
+# table(ca_est, ca_true)
+
+# Function to plot clusters
+plot_clusters <- function(ut_mat, cluster_assignment, cluster_alphas, yRange = c(0, .5)) {
+  cluster_means <- cluster_alphas %>% {./rowSums(.)}
+  ut_mat <- ut_mat %>% {./rowSums(.)}
+  
+  lapply(unique(cluster_assignment), function(c) {
+    ut_mat %>%
+    {.[cluster_assignment == c, ]} %>%
+      t %>%
+      data.frame(Topic = 1:ncol(ut_mat), .) %>%
+      reshape2::melt(id.vars = "Topic") %>%
+      ggplot(aes(x = Topic, y = value)) +
+      geom_line(aes(color = variable)) +
+      guides(color = "none") +
+      geom_bar(data = data.frame(x = 1:ncol(ut_mat), y = cluster_means[c, ]), aes(x = x, y = y), alpha = .5, stat = "identity") +
+      labs(title = str_c("Cluster ", c, " (n=", sum(cluster_assignment == c), ")"), y = "Probability") +
+      ylim(yRange)
+  })
+}
+
+# Generate and arrange cluster plots
+clusterPlots <- plot_clusters(ut_mat = groundtruth_estimate[["ut"]] %>% results_array_mean(),
+                              cluster_assignment = groundtruth_estimate[["ca"]] %>% results_freq_table() %>% apply(1, which.max),
+                              cluster_alphas = groundtruth_estimate[["alphag"]] %>% results_array_mean())
+
+clusterPlots %>% gridExtra::grid.arrange(grobs = .)
+
+
+
+
+
+```
