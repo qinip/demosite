@@ -131,7 +131,7 @@ VisTextNet(tweets_g_nw, alpha = 0.25, label_degree_cut=0, betweenness=TRUE)
 
 ```
 
-### 3.2 Use stLDA-C to analyze US Senators' tweets. (One day's tweets from 100 US Senators)
+### 3.2 Use stLDA-C to analyze US Senators' tweets. (One day's tweets from 20 US Senators, 10 tweets per person)
 
 ```{r include=FALSE}
 # Replicate the demo code from the authors
