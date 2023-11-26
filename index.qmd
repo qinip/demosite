@@ -1,6 +1,12 @@
 ---
 title: "stLDA-C: A Topic Model for Short Texts"
-author: "Eddy Ji"
+title-block-banner: "#041E42"
+author: 
+  - name: Zhiqiang Ji
+    email: zj117@georgetown.edu
+    affiliation: 
+      - name: McCourt School of Public Policy, Georgetown University
+        url: https://mccourt.georgetown.edu/
 date: "`r Sys.Date()`"
 resources: "rcs/"
 format:
@@ -14,71 +20,96 @@ execute:
   warning: false
 ---
 
-## Part 1: Introduction
+## Introduction: Topic Modeling and LDA
 
-### 1.1 Recap: What's LDA?
+**Topic modeling** in Natural Language Processing (NLP) is a technique used to discover hidden themes or topics within a collection of text documents. It's an unsupervised machine learning technique, meaning it doesn't require predefined tags or training data that's been previously classified by humans. The main objective of topic modeling is to discover topics that are clusters of words expressed as a combination of strongly related words.
 
--   LDA is a generative probabilistic model for collections of discrete data such as text corpora.
--   Documents, Words, Topics: LDA is a three-level hierarchical Bayesian model, in which each item of a collection is modeled as a finite mixture over an underlying set of topics.
--   Assumptions:
-    -   Documents are represented as random mixtures over latent topics, where each topic is characterized by a distribution over words.
-    -   Documents are exchangeable.
-    -   Each word's creation is conditioned on a single topic.
-    -   The topic proportions of a document are assumed to have a Dirichlet prior.
-    -   The topic-specific word distributions also have a Dirichlet prior.
--   Requirements for the data:
-    -   Each document must represent a mixture of topics.
-    -   Each word must be generated from a single topic.
+One popular algorithm for topic modeling is Latent Dirichlet Allocation (LDA). Topic modeling is used in various applications such as chatbots, autocorrection, speech recognition, language translation, social media monitoring, hiring and recruitment, email filtering, and more.
 
-### 1.2 What's LDA's problem with short texts like tweets?
+### What's LDA?
+
+Latent Dirichlet Allocation (LDA) is a generative probabilistic model for collections of discrete data such as text corpora. Documents are represented as random mixtures over latent topics, where each topic is characterized by a distribution over words. The topic proportions of a document are assumed to have a Dirichlet prior. The topic-specific word distributions also have a Dirichlet prior.
+
+![LDA Diagram, credit:[Think Infi](https://thinkinfi.com/latent-dirichlet-allocation-for-beginners-a-high-level-overview/)](rcs/LDA_diagram1.png)
+
+LDA has these key assumptions: - Documents are represented as random mixtures over latent topics, where each topic is characterized by a distribution over words. - Documents are exchangeable. - Requirements for the data: - Each document must represent a mixture of topics. - Each word must be generated from a single topic.
+
+### What's LDA's problem with short texts like *tweets*?
 
 -   LDA is designed for long documents, but tweets are short.
 -   LDA assumes that each document is a mixture of topics, but tweets are often about a single topic.
--   Short texts from SSN has other characteristics that are not considered by LDA, such as users, hashtags, mentions, etc.
+-   Short texts from social network platform has other characteristics that are not considered by LDA, such as users, hashtags, mentions, etc.
 
-### 1.3 What are the fixes by far?
+### What are the fixes by far? What are their problems?
 
 -   Merge all short documents by the same users into a long document
 -   Use a single topic for each short document
-    -   Per-shot-text LDA (aka. Twitter-LDA)
-    -   Dirichlet-Multinomial Mixture (DMM)
+    -   Per-shot-text LDA (aka. [Twitter-LDA](https://github.com/minghui/Twitter-LDA))
+    -   Dirichlet-Multinomial Mixture ([DMM](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0030126))
 -   Learn topics from longer documents (e.g., news articles) and apply them to short texts
 -   Classify shot texts utilizing neural networks
-    -   The word mover's distance (WMD)
+    -   The word mover's distance ([WMD](https://radimrehurek.com/gensim/auto_examples/tutorials/run_wmd.html))
     -   Word embeddings
 -   Clustering techniques
 
-### 1.4 What's the problem with the fixes?
+However, while there are methods available for analyzing short-text documents, they do have some limitations. Specifically, these methods do not retain user information and co-occurrence of words within the same short texts. Additionally, they require a corpus of long text that is already compatible with the short-text documents, and relying on pre-trained word embeddings may not accurately reflect the specific vocabulary and semantic usage of words in the short texts.
 
--   The user information is lost
--   The co-occurence of words within the same short texts is lost
--   Requires a corpus of long text that is a priori compatible with the short-text documents
--   Rely on pre-trained word embeddings may not reflect the specific voabulary and semantic usage of words in the short texts
+![](rcs/tm_levity.png)
 
-### 1.5 Introducing stLDA-C
 
--   Short text LDA topic model with unsupervised clustering of authors of short documents
--   Fuses the clustering of **both authors(users) and documents**
--   This hierachical model is able to share information at multiple levels leading to higher quality estimates of per-author topic distributions, per-cluster topic distribution centers, and autho cluster assignments.
+## Introducing the stLDA-C Model
 
-## Part 2: The stLDA-C Model
+The stLDA-C model was proposed by Tierney et al. in their paper "Author Clustering and Topic Estimation for Short Texts." This model particularly aims to improve topic estimation in brief documents, such as social media posts, and incorporates the grouping of authors for more effective analysis.
+
+stLDA features: 
+- Short text LDA topic model with unsupervised clustering of authors of short documents 
+- Fusing the clustering of **both authors(users) and documents** 
+- Hierarchical model capalbe of sharing information at multiple levels leading to higher quality estimates of per-author topic distributions, per-cluster topic distribution centers, and author cluster assignments.
 
 The stLDA-C model is specifically designed to handle the sparsity of words in short texts by considering the additional structure provided by user clusters and potentially by integrating external information or employing different priors that are more suitable for short texts.
 
-From traditional
+To understand what's new in the stLDA-C model, let's first take a closer look at the traditional LDA model.
 
-![LDA](rcs/tLDA_diagram.png)
-
-to
+::: {layout-ncol="2"}
+![Traditional LDA](rcs/LDA_math.png)
 
 ![stLDA-C](rcs/stLDA_diagram.png)
+:::
 
-*visualization is under construction*
+Quick summary of the traditional LDA notations:
 
-Three most important addtions to the traditional LDA model:
+**W**: Word **Z**: Topic
 
-1.  **User Clustering**: This model introduces a layer of user clustering that groups users into different clusters based on their topic preferences.
-2.  **Hierarchical Topic Distributions**: It incorporates hierarchical priors, which allow for cluster-level topic distributions and user-specific topic distributions.
+LDA Input: 1. **M** number of documents 2. Each of these documents have **N** number of words
+
+LDA Output: 1. **K** number of topics (cluster of words) 1. **Φ** distribution (document to topic distribution)
+
+Compared with the traditional LDA, the stLDA-C model adds a layer of user clustering and a layer of hierarchical topic distributions. From the diagram below, we can see that
+
+From the diagrams, we can see that the stLDA-C model introduced several changes and additions:
+
+1.  The model considers $G$ clusters of users, where $G$ is a hyperparameter.
+2.  $G_u$ represents the assignment of each user to a specific cluster, governed by the $\phi$ parameter.
+3.  $\alpha_g$ is the vector parameter of a Dirichlet distribution over topics choices for users in cluster $g$.
+4.  $\phi$ represents the distribution over user clusters. It forms a prior for the user cluster assignments. In traditional LDA, there is no concept of user clusters, so this parameter $\nu$ is specific to stLDA. $\phi$ encodes the proportion of users in each group and forms a prior distribution for $Gu$.
+5.  $\theta_u$: Because the model assumes that each document (tweet) is generated by a single topic, the consideration for the document-topic distribution is replaced by user-topic distribution. Each user-specific topic distribution $\theta_u$ is a draw from $Dir(\alpha_g)$, where $g$ is the cluster assignment of user $u$.
+6.  $Z_{ud}$ is the topic of each tweet $d$ by user $u$. $Z_{ud}$ is a single draw from $\theta_u$, and all words in tweet $ud$ are sampled from the topic distribution over words, $\beta_t$, where $Z_{ud} = t$.
+
+The generative process of the stLDA-C model is as follows:
+
+![Generative process of the stLDA-C model](rcs/generative.png)
+
+Very intimidating, right? Let's break it down.
+
+![stLDA-C model workflow](rcs/stLDA_canva.png)
+
+Three key takeaways from the stLDA model:
+
+1. **User Clustering**: stLDA clusters users by topic preferences, enhancing the analysis of datasets where authorship is significant.
+2. **Hierarchical Topic Distributions**: The model employs hierarchical priors for nuanced cluster-level and user-specific topic analysis.
+3. **Integrated Topic-User and Word Analysis**: stLDA combines topic-user dynamics with word co-occurrence for comprehensive short text analysis.
+
+![](rcs/banner.png)
 
 ## Part 3: The stLDA-C Model in Action: Analyze US Senators' tweets from a single day
 
@@ -185,7 +216,6 @@ groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = .1, nu 
                                                         print_clusters = T)
 ```
 
-
 ```{r}
 
 #######################
@@ -239,3 +269,11 @@ clusterPlots %>% gridExtra::grid.arrange(grobs = .)
 
 
 ```
+
+## See more:
+
+-   [What is Topic Modeling? Definition, Uses, & Examples](https://dovetail.com/customer-research/topic-modeling/)
+-   [What is Topic Modeling? A Beginner's Guide](https://levity.ai/blog/what-is-topic-modeling)
+-   [Topic Modeling: An Introduction - MonkeyLearn](https://monkeylearn.com/blog/introduction-to-topic-modeling/)
+-   [Topic Modelling \| Topic Modelling in Natural Language Processing.](https://www.analyticsvidhya.com/blog/2021/05/topic-modelling-in-natural-language-processing/)
+-   [A Beginner's Guide to Latent Dirichlet Allocation(LDA)](https://towardsdatascience.com/latent-dirichlet-allocation-lda-9d1cd064ffa2)
