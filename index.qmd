@@ -125,23 +125,56 @@ library(tidytext)
 library(textdata)
 library(networkD3)
 library(igraph)
+library(readxl)
 
 # Load the data
 tweets_all <- read.csv("rcs/data/senate_tweets_09.26.2020.csv")
-# keep only the text and the user id
-tweets <- tweets_all[,c("text", "screen_name", "user_id")]
-# keep 20 tweets for each screen_name (scale down to save running time)
-tweets <- tweets %>% group_by(screen_name) %>% slice(1:10) %>% ungroup()
-# pick 20 screen_name randomly and only keep their tweets, 20 for each screen_name, set seed=196
-tweets <- tweets %>% filter(screen_name %in% sample(unique(screen_name), 20, replace = FALSE, set.seed(42)))
+# exclude retweets
+tweets_all <- tweets_all %>% filter(is_retweet == FALSE)
+
+# Get the top 60 users with most tweets
+top_users <- tweets_all %>%
+  group_by(screen_name) %>%             
+  summarise(tweet_count = n()) %>%  
+  arrange(desc(tweet_count)) %>%    
+  top_n(60)
+
+dim(top_users)
+list(top_users$screen_name)
+# Keep the tweets by the 60 top users
+tweets_top_users <- tweets_all %>%
+  filter(screen_name %in% top_users$screen_name)
+
+# Get the top 20 tweets with highest sum of "favorite_count" and "retweet_count" for each of the top 60 users
+top_tweets <- tweets_top_users %>%
+  group_by(screen_name) %>% 
+  mutate(total_engagement = favorite_count + retweet_count) %>% 
+  arrange(desc(total_engagement)) %>%                           
+  slice_head(n = 20)                                            
+
+# For each tweet combine "text" and "quoted_text" to "text_com"
+top_tweets <- top_tweets %>%
+  mutate(text_com = ifelse(is.na(quoted_text), text, paste(text, quoted_text, sep=" "))) %>% 
+  select(user_id, screen_name, text_com)    # Keep only "user_id", "screen_name", "text_com"
+
+# Read in the data of their party affiliation
+party <- read_excel("rcs/data/name_party.xlsx")
+head(party)
+# Join party with top_tweets by screen_name
+top_tweets <- inner_join(top_tweets, party, by = "screen_name")
+table(top_tweets$party) # 37 D and 22 R
 ```
+
+
+We gathered tweets from U.S. senators posted from August 16 to September 26, 2020. Our focus was on the 40 most active Twitter users among them, specifically selecting their top 10 tweets based on the highest combined counts of likes and retweets. Among these 40 senators, 24 are Democrats and 16 are Republicans.
+
 
 ### 3.1 Visualize the networks of tweets and users
 
 ```{r}
 # Create the networks
-tweets_w <- PrepText(tweets, groupvar = "screen_name", textvar = "text", node_type = "words", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
-tweets_g <- PrepText(tweets, groupvar = "screen_name", textvar = "text", node_type = "groups", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = TRUE)
+tweets_w <- PrepText(top_tweets, groupvar = "screen_name", textvar = "text_com", node_type = "words", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = FALSE)
+tweets_g <- PrepText(top_tweets, groupvar = "screen_name", textvar = "text_com", node_type = "groups", tokenizer = "words", pos = "nouns", remove_stop_words = TRUE, compound_nouns = FALSE)
 
 tweets_w_nw <- CreateTextnet(tweets_w)
 tweets_g_nw <- CreateTextnet(tweets_g)
@@ -151,18 +184,87 @@ saveRDS(tweets_w_nw, "rcs/data/tweets_w_nw.rds")
 saveRDS(tweets_g_nw, "rcs/data/tweets_g_nw.rds")
 
 # # ## Check the distribution of degree of the nodes
-# degree <- degree(tweets_w_nw)
-# hist(degree, breaks = 100, main = "Degree Distribution of Words", xlab = "Degree")
-# # 
-# # ## Check number of nodes and edges
+degree <- degree(tweets_w_nw)
+hist(degree, breaks = 100, main = "Degree Distribution of Words", xlab = "Degree")
+
+# ## Check number of nodes and edges
 # vcount(tweets_w_nw)
+# ecount(tweets_w_nw)
+# vcount(tweets_g_nw)
+# ecount(tweets_g_nw)
 
-VisTextNet(tweets_w_nw, alpha = 0.25, label_degree_cut=10, betweenness=FALSE)
-VisTextNet(tweets_g_nw, alpha = 0.25, label_degree_cut=0, betweenness=TRUE)
-
+VisTextNet(tweets_g_nw, alpha = 0.25, label_degree_cut=10, betweenness=TRUE)
+VisTextNetD3(tweets_g_nw, alpha = 0.2, charge=-50,zoom = TRUE)
 ```
 
+From the network visualization, we can see that the 40 users are clustered into six groups, which will be used for following estimation of the stLDA-C model.
+
+
+```{r}
+
+## Get a subset from "tweets_w" of 10 users with 10 words with highest degree
+# select the top 5 lemmas for each user
+top_lemmas_per_user <- tweets_w %>%
+  group_by(screen_name) %>%
+  slice_max(order_by = count, n = 10, with_ties = FALSE)
+
+# This example selects the top 20 users based on the total count of their lemmas
+top_users <- top_lemmas_per_user %>%
+  group_by(screen_name) %>%
+  summarise(total_count = sum(count)) %>%
+  arrange(desc(total_count)) %>%
+  slice_head(n = 25) %>%
+  ungroup()
+
+# Finally, subset the original top lemmas dataset to only include these top users
+final_subset <- top_lemmas_per_user %>%
+  filter(screen_name %in% top_users$screen_name)
+
+
+
+## Copy tweets_w and rename "screen_name" to "groupvar" and "text_com" to "textvar"
+tweets_data <- final_subset %>%
+  rename(groupvar = screen_name) %>%select(groupvar, lemma)
+
+
+# Create edges between outlets and lemmatized words
+edges_outlet_word <- tweets_data %>%
+  select(groupvar, lemma) %>%
+  distinct()
+
+# Convert to edge list and create a graph
+edge_list <- as.data.frame(edges_outlet_word)
+g <- graph_from_data_frame(edge_list, directed = FALSE)
+
+# Set type attribute
+V(g)$type <- ifelse(V(g)$name %in% tweets_data$groupvar, TRUE, FALSE)
+
+# Convert to networkD3 format and create interactive plot
+network_data <- igraph_to_networkD3(g)
+network_data$nodes$group <- ifelse(network_data$nodes$name %in% tweets_data$groupvar, "Outlet", "Word")
+
+# Interactive plot
+forceNetwork(Links = network_data$links, Nodes = network_data$nodes,
+             Source = "source", Target = "target",
+             NodeID = "name", Group = "group", 
+             zoom = TRUE, fontSize = 30, charge=-30,
+             colourScale = JS("d3.scaleOrdinal().range(['#76b7b2', '#f28e2b'])"))
+```
+This interactive plot shows the network of the top 10 words and top 25 users with the highest degree. The nodes in blue represent the top 10 users, and the nodes in orange represent the top 10 words. This plot has nothing to do with the topic modeling, but simply shows how the users and their words conduct a 2-mode or bipartite network. The stLDA-C model is able to capture the distribution of topics in this network.
+
+
 ### 3.2 Use stLDA-C to analyze US Senators' tweets. (One day's tweets from 20 US Senators, 10 tweets per person)
+
+```{r}
+head(top_tweets)
+```
+```{r include=FALSE}
+tweets_stlda <- tweets_all %>% 
+  mutate(text_com = ifelse(is.na(quoted_text), text, paste(text, quoted_text, sep=" "))) %>% 
+  select(user_id, screen_name, text_com)
+
+dim(tweets_stlda)
+```
 
 ```{r include=FALSE}
 # Replicate the demo code from the authors
@@ -171,8 +273,9 @@ source("rcs/scripts/helper_functions.R")
 source("rcs/scripts/gibbs_functions.R")
 
 # Generate Document-Feature Matrix from tweets
-dfmat_tweets <- dfm(tweets$text, remove_punct = TRUE, remove = stopwords('en')) %>%
-  dfm_trim(min_termfreq = 0.95, termfreq_type = "quantile", max_docfreq = 0.1, docfreq_type = "prop")
+top_tweets$text_com <- str_replace_all(top_tweets$text_com, "[$+><�]", "")
+dfmat_tweets <- dfm(top_tweets$text_com, remove_punct = TRUE, remove_numbers = TRUE, remove = stopwords("en"), remove_url = TRUE) %>% 
+  dfm_trim(min_termfreq = 0.5, termfreq_type = "quantile", max_docfreq = 0.05, docfreq_type = "prop")
 
 # Ensure all documents have content
 dfmat_tweets <- dfmat_tweets[ntoken(dfmat_tweets) > 0,]
@@ -183,8 +286,8 @@ dtm <- convert(dfmat_tweets, to = "topicmodels")
 ### LDA Model Fitting ###
 
 # Set the number of topics
-nT <- 6  
-lda <- LDA(dtm, k = nT, control = list(seed = 42))
+nT <- 6
+lda <- LDA(dtm, k = nT, control = list(seed = 23))
 
 # Extract the topic distributions
 topics <- tidy(lda, matrix = "beta")
@@ -202,14 +305,14 @@ tw_true <- topics_tw[, 2:(nT + 1)] %>% t
 nC <- 2  # Adjust this based on your analysis requirement
 
 # Users - using screen names from tweets
-users <- tweets$screen_name
+users <- top_tweets$screen_name
 dw <- as.matrix(dfmat_tweets)
 # Fit the stLDA-C Model
-groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = .1, nu = 1,
+groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = 0.1, nu = 1,
                                                         users = users, dw = tw_true,  
                                                         nT = nT, nC = nC,
-                                                        niter = 50,
-                                                        seed = 196, mcmc_update = T,
+                                                        niter = 100,
+                                                        seed = 23, mcmc_update = T,
                                                         nClusterIter = 100,
                                                         mu_scale = 0, sigma_scale = 100,
                                                         prop_scale_center = 100, alphag_sample_method = "componentwise",
@@ -222,9 +325,9 @@ groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = .1, nu 
 ### Visualizations ####
 #######################
 
-#print top 5 words from each topic
+#print top 15 words from each topic
 groundtruth_estimate[["tw"]] %>% 
-  top_topic_words(words = words,n=10) %>% 
+  top_topic_words(words = words,n=15) %>% 
   t
 
 #print cluster means with user-level topic estimates overlayed
@@ -232,7 +335,7 @@ groundtruth_estimate[["tw"]] %>%
 #note that clusters with 1 user do not visualize well
 
 # Extract estimated cluster assignments from the model results
-ca_est <- groundtruth_estimate[["ca"]] %>% results_freq_table() %>% apply(1, which.max)
+ca_est <- groundtruth_estimate[["ca"]]  %>% results_freq_table() %>% apply(1, which.max)
 
 # The following line is commented out because ca_true doesn't exist in your actual data scenario
 # table(ca_est, ca_true)
@@ -269,6 +372,9 @@ clusterPlots %>% gridExtra::grid.arrange(grobs = .)
 
 
 ```
+## Conclusion
+
+Despite the advanced capabilities of the short text Latent Dirichlet Allocation (stLDA) model, obtaining ideal results from the analysis of 1200 tweets from 60 users proved challenging, primarily due to the inherent sparsity and brevity of tweets. These characteristics often result in limited contextual information and high variability in user-generated content, which can hinder the model's ability to accurately discern and categorize topics. Additionally, the effectiveness of stLDA is highly sensitive to text preprocessing choices and hyperparameter settings, which require meticulous tuning. To improve future analyses, a more extensive dataset could be beneficial, alongside a refined approach to preprocessing and an iterative process of parameter optimization to better capture the nuances of short text data.
 
 ## See more:
 
