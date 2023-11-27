@@ -32,7 +32,15 @@ Latent Dirichlet Allocation (LDA) is a generative probabilistic model for collec
 
 ![LDA Diagram, credit:[Think Infi](https://thinkinfi.com/latent-dirichlet-allocation-for-beginners-a-high-level-overview/)](rcs/LDA_diagram1.png)
 
-LDA has these key assumptions: - Documents are represented as random mixtures over latent topics, where each topic is characterized by a distribution over words. - Documents are exchangeable. - Requirements for the data: - Each document must represent a mixture of topics. - Each word must be generated from a single topic.
+LDA has these key assumptions:
+
+-   Documents are represented as random mixtures over latent topics, where each topic is characterized by a distribution over words.
+-   Documents are exchangeable.
+
+Requirements for the data:
+
+-   Each document must represent a mixture of topics.
+-   Each word must be generated from a single topic.
 
 ### What's LDA's problem with short texts like *tweets*?
 
@@ -56,17 +64,18 @@ However, while there are methods available for analyzing short-text documents, t
 
 ![](rcs/tm_levity.png)
 
-
 ## Introducing the stLDA-C Model
 
-The stLDA-C model was proposed by Tierney et al. in their paper "Author Clustering and Topic Estimation for Short Texts." This model particularly aims to improve topic estimation in brief documents, such as social media posts, and incorporates the grouping of authors for more effective analysis.
+The stLDA-C model was proposed by Tierney et al. in their paper ["Author Clustering and Topic Estimation for Short Texts."](https://arxiv.org/abs/2106.09533) This model particularly aims to improve topic estimation in brief documents, such as social media posts, and incorporates the grouping of authors for more effective analysis.
 
 stLDA features: 
-- Short text LDA topic model with unsupervised clustering of authors of short documents 
-- Fusing the clustering of **both authors(users) and documents** 
+
+- Short text LDA topic model with unsupervised clustering of authors of short documents - Fusing the clustering of **both authors(users) and documents** 
 - Hierarchical model capalbe of sharing information at multiple levels leading to higher quality estimates of per-author topic distributions, per-cluster topic distribution centers, and author cluster assignments.
 
 The stLDA-C model is specifically designed to handle the sparsity of words in short texts by considering the additional structure provided by user clusters and potentially by integrating external information or employing different priors that are more suitable for short texts.
+
+### What's new in the stLDA-C model?
 
 To understand what's new in the stLDA-C model, let's first take a closer look at the traditional LDA model.
 
@@ -78,15 +87,21 @@ To understand what's new in the stLDA-C model, let's first take a closer look at
 
 Quick summary of the traditional LDA notations:
 
-**W**: Word **Z**: Topic
+**W**: Word 
 
-LDA Input: 1. **M** number of documents 2. Each of these documents have **N** number of words
+**Z**: Topic
 
-LDA Output: 1. **K** number of topics (cluster of words) 1. **Φ** distribution (document to topic distribution)
+LDA Input: 
 
-Compared with the traditional LDA, the stLDA-C model adds a layer of user clustering and a layer of hierarchical topic distributions. From the diagram below, we can see that
+1. **M** number of documents 
+2. Each of these documents have **N** number of words
 
-From the diagrams, we can see that the stLDA-C model introduced several changes and additions:
+LDA Output: 
+
+1. **K** number of topics (cluster of words) 
+1. **Φ** distribution (document to topic distribution)
+
+Compared with the traditional LDA, the stLDA-C model adds a layer of user clustering and a layer of hierarchical topic distributions. From the diagrams, we can see that the stLDA-C model introduced several changes and additions:
 
 1.  The model considers $G$ clusters of users, where $G$ is a hyperparameter.
 2.  $G_u$ represents the assignment of each user to a specific cluster, governed by the $\phi$ parameter.
@@ -99,19 +114,21 @@ The generative process of the stLDA-C model is as follows:
 
 ![Generative process of the stLDA-C model](rcs/generative.png)
 
-Very intimidating, right? Let's break it down.
+### TL;DR
+
+Very intimidating, right? Let's break it down:
 
 ![stLDA-C model workflow](rcs/stLDA_canva.png)
 
 Three key takeaways from the stLDA model:
 
-1. **User Clustering**: stLDA clusters users by topic preferences, enhancing the analysis of datasets where authorship is significant.
-2. **Hierarchical Topic Distributions**: The model employs hierarchical priors for nuanced cluster-level and user-specific topic analysis.
-3. **Integrated Topic-User and Word Analysis**: stLDA combines topic-user dynamics with word co-occurrence for comprehensive short text analysis.
+1.  **User Clustering**: stLDA clusters users by topic preferences, enhancing the analysis of datasets where authorship is significant.
+2.  **Hierarchical Topic Distributions**: The model employs hierarchical priors for nuanced cluster-level and user-specific topic analysis.
+3.  **Integrated Topic-User and Word Analysis**: stLDA combines topic-user dynamics with word co-occurrence for comprehensive short text analysis.
 
 ![](rcs/banner.png)
 
-## Part 3: The stLDA-C Model in Action: Analyze US Senators' tweets from a single day
+## The stLDA-C Model in Action: Analyze US Congress members' tweets
 
 ```{r include=FALSE}
 # Load the packages
@@ -165,11 +182,11 @@ top_tweets <- inner_join(top_tweets, party, by = "screen_name")
 table(top_tweets$party) # 37 D and 22 R
 ```
 
+We gathered tweets from U.S. Congress members posted from August 16 to September 26, 2020. Our focus was on the 60 most active Twitter users among them, specifically selecting their top 20 tweets based on the highest combined counts of likes and retweets. Among these 60 Congress members, 37 are Democrats and 22 are Republicans.
 
-We gathered tweets from U.S. senators posted from August 16 to September 26, 2020. Our focus was on the 40 most active Twitter users among them, specifically selecting their top 10 tweets based on the highest combined counts of likes and retweets. Among these 40 senators, 24 are Democrats and 16 are Republicans.
+### Visualize the networks of tweets and users
 
-
-### 3.1 Visualize the networks of tweets and users
+First, we will visualize the networks of tweets and users. The nodes in the network are the tweets and users, and the edges are the co-occurrence of words in the tweets. The size of the nodes is proportional to the betweeness centrality of the nodes (in the following plot, users). Here we presenting a static and an interactive version of the network of users.
 
 ```{r}
 # Create the networks
@@ -197,8 +214,7 @@ VisTextNet(tweets_g_nw, alpha = 0.25, label_degree_cut=10, betweenness=TRUE)
 VisTextNetD3(tweets_g_nw, alpha = 0.2, charge=-50,zoom = TRUE)
 ```
 
-From the network visualization, we can see that the 40 users are clustered into six groups, which will be used for following estimation of the stLDA-C model.
-
+The network visualization reveals that the 40 users are grouped into six clusters. However, these groupings do not necessarily align with the cluster estimates provided by the stLDA-C model.
 
 ```{r}
 
@@ -250,21 +266,14 @@ forceNetwork(Links = network_data$links, Nodes = network_data$nodes,
              zoom = TRUE, fontSize = 30, charge=-30,
              colourScale = JS("d3.scaleOrdinal().range(['#76b7b2', '#f28e2b'])"))
 ```
+
 This interactive plot shows the network of the top 10 words and top 25 users with the highest degree. The nodes in blue represent the top 10 users, and the nodes in orange represent the top 10 words. This plot has nothing to do with the topic modeling, but simply shows how the users and their words conduct a 2-mode or bipartite network. The stLDA-C model is able to capture the distribution of topics in this network.
 
 
-### 3.2 Use stLDA-C to analyze US Senators' tweets. (One day's tweets from 20 US Senators, 10 tweets per person)
+### Use stLDA-C to analyze US Senators' tweets
 
-```{r}
-head(top_tweets)
-```
-```{r include=FALSE}
-tweets_stlda <- tweets_all %>% 
-  mutate(text_com = ifelse(is.na(quoted_text), text, paste(text, quoted_text, sep=" "))) %>% 
-  select(user_id, screen_name, text_com)
+Now, we'll try to use the stLDA-C model to analyze the tweets of the 40 senators. We will use the same code as the authors of the stLDA-C model provided in their [demo](https://github.com/g-tierney/stLDA-C_public). We set the number of topics to 6, which is the same as the number of clusters we found in the network visualization. The number of user clusters is set to 2, indicating the party affiliation of the congress members. 
 
-dim(tweets_stlda)
-```
 
 ```{r include=FALSE}
 # Replicate the demo code from the authors
@@ -308,7 +317,7 @@ nC <- 2  # Adjust this based on your analysis requirement
 users <- top_tweets$screen_name
 dw <- as.matrix(dfmat_tweets)
 # Fit the stLDA-C Model
-groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = 0.1, nu = 1,
+groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = 0.05, nu = 1,
                                                         users = users, dw = tw_true,  
                                                         nT = nT, nC = nC,
                                                         niter = 100,
@@ -317,10 +326,10 @@ groundtruth_estimate <- collapsed_gibbs_1topic_clusters(alpha = 1, eta = 0.1, nu
                                                         mu_scale = 0, sigma_scale = 100,
                                                         prop_scale_center = 100, alphag_sample_method = "componentwise",
                                                         print_clusters = T)
+
 ```
 
 ```{r}
-
 #######################
 ### Visualizations ####
 #######################
@@ -366,17 +375,22 @@ clusterPlots <- plot_clusters(ut_mat = groundtruth_estimate[["ut"]] %>% results_
                               cluster_alphas = groundtruth_estimate[["alphag"]] %>% results_array_mean())
 
 clusterPlots %>% gridExtra::grid.arrange(grobs = .)
-
-
-
-
-
 ```
-## Conclusion
 
-Despite the advanced capabilities of the short text Latent Dirichlet Allocation (stLDA) model, obtaining ideal results from the analysis of 1200 tweets from 60 users proved challenging, primarily due to the inherent sparsity and brevity of tweets. These characteristics often result in limited contextual information and high variability in user-generated content, which can hinder the model's ability to accurately discern and categorize topics. Additionally, the effectiveness of stLDA is highly sensitive to text preprocessing choices and hyperparameter settings, which require meticulous tuning. To improve future analyses, a more extensive dataset could be beneficial, alongside a refined approach to preprocessing and an iterative process of parameter optimization to better capture the nuances of short text data.
+### Conclusion
 
-## See more:
+Unfortunately, the stLDA-C model did not perform as well as we had hoped. The key words for the topics were not distinguishable enough to be useful, and the cluster assignment did not work on the 60 users. (For a ideal result, please refer back to the workflow diagram above.)
+
+Despite the advanced capabilities of the short text Latent Dirichlet Allocation (stLDA) model, obtaining ideal results from the analysis of 1200 tweets from 60 users proved challenging, primarily due to the inherent sparsity and brevity of tweets. It will take some trial and error to determine the optimal number of topics and clusters to use in the model.
+
+Additionally, the effectiveness of stLDA is highly sensitive to text preprocessing choices and hyperparameter settings, which require meticulous tuning. To improve future analyses, a more extensive dataset could be beneficial, alongside a refined approach to preprocessing and an iterative process of parameter optimization to better capture the nuances of short text data.
+
+
+![](rcs/flawed_data.png)
+
+---
+
+## Explore more:
 
 -   [What is Topic Modeling? Definition, Uses, & Examples](https://dovetail.com/customer-research/topic-modeling/)
 -   [What is Topic Modeling? A Beginner's Guide](https://levity.ai/blog/what-is-topic-modeling)
