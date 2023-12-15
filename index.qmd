@@ -15,7 +15,6 @@ format:
     toc: true
     toc_depth: 3
     toc_float: true
-    self-contained: true
 execute: 
   warning: false
 ---
